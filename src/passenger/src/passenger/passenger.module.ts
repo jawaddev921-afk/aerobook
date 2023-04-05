@@ -1,0 +1,38 @@
+import {Inject, Module, OnApplicationBootstrap} from '@nestjs/common';
+import {CqrsModule} from '@nestjs/cqrs';
+import {TypeOrmModule} from '@nestjs/typeorm';
+import {IPassengerRepository, PassengerRepository} from '@/data/repositories/passenger.repository';
+import {Passenger} from '@/passenger/entities/passenger.entity';
+import {RabbitmqModule} from "building-blocks/rabbitmq/rabbitmq.module";
+import {
+    GetPassengerByIdController,
+    GetPassengerByIdHandler
+} from '@/passenger/features/v1/get-passenger-by-id/get-passenger-by-id';
+import {GetPassengersController, GetPassengersHandler} from '@/passenger/features/v1/get-passengers/get-passengers';
+import {UserCreated} from "building-blocks/contracts/identity.contract";
+import {CreateUserHandler} from '@/user/consumers/create-user';
+import {IRabbitmqConsumer} from "building-blocks/rabbitmq/rabbitmq-subscriber";
+
+
+@Module({
+    imports: [CqrsModule, RabbitmqModule.forRoot(), TypeOrmModule.forFeature([Passenger])],
+    controllers: [GetPassengerByIdController, GetPassengersController],
+    providers: [GetPassengerByIdHandler, GetPassengersHandler,
+        {
+            provide: 'IPassengerRepository',
+            useClass: PassengerRepository,
+        },
+    ],
+    exports: [],
+})
+export class PassengerModule implements OnApplicationBootstrap {
+    constructor(
+        @Inject('IRabbitmqConsumer') private readonly rabbitmqConsumer: IRabbitmqConsumer,
+        @Inject('IPassengerRepository') private readonly passengerRepository: IPassengerRepository
+    ) {
+    }
+
+    async onApplicationBootstrap(): Promise<void> {
+        await this.rabbitmqConsumer.consumeMessage<UserCreated>(new UserCreated(), new CreateUserHandler(this.passengerRepository).createUserConsumerHandler);
+    }
+}
